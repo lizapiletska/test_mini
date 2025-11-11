@@ -10,6 +10,8 @@ websockets==10.3
 # Python client for running local models like Mistral with Ollama
 ollama
 
+numpy
+matplotlib
 # === Utilities ===
 # Good practice for managing environment variables (e.g., API keys)
 # python-dotenv

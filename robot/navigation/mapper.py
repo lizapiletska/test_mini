@@ -4,61 +4,64 @@ import asyncio
 import json
 import logging
 import math
-from typing import List, Dict
+from typing import List, Dict, TYPE_CHECKING, Optional
 
 from robot.controller import RobotController
 from config import settings
 from mini.apis.api_action import MoveRobotDirection
 
+# --- *** NEW *** ---
+# Import VisualMapper for type hinting
+if TYPE_CHECKING:
+    from vision.visual_mapper import VisualMapper
+
 # Setup logger for this module
 logger = logging.getLogger(__name__)
 
-# --- CRITICAL TUNING ---
-# You calibrated this: 12 steps for a 360-degree turn.
-STEPS_FOR_360_TURN = 12  # <--- THIS IS YOUR GOLDEN NUMBER
-
-# --- FIX 1 ---
-# The number of scans MUST equal the number of steps.
-# Your robot is physically limited to 12 positions in a circle.
-SCAN_POINTS = STEPS_FOR_360_TURN  # (This will be 12)
+STEPS_FOR_360_TURN = 12
+SCAN_POINTS = STEPS_FOR_360_TURN
 
 
 class Mapper:
     """
     Handles room scanning and map persistence.
-    
-    The "map" is a simple 2D point cloud, saved as a list of
-    {"angle": degrees, "distance_mm": distance} objects.
+    Now also sends data to a live visualizer.
     """
 
-    def __init__(self, controller: 'RobotController'):
+    # --- *** MODIFIED *** ---
+    def __init__(self, controller: 'RobotController', visual_mapper: Optional['VisualMapper'] = None):
         self.controller = controller
         self.map_data: List[Dict] = []
+        
+        # --- *** NEW *** ---
+        self.visual_mapper = visual_mapper # Store the visualizer instance
         
         num_scan_points = SCAN_POINTS
         if num_scan_points <= 0:
             num_scan_points = 1
         
-        # This will now calculate: ceil(12 / 12) = 1
         self.steps_per_scan = int(math.ceil(STEPS_FOR_360_TURN / num_scan_points))
-        
-        # This will now calculate: 360.0 / 12 = 30 degrees per step
         self.angle_per_scan = 360.0 / num_scan_points
         self.scan_points_to_run = num_scan_points  
 
     async def scan_and_build_map(self) -> bool:
         """
         Performs the 360-degree spin-and-scan operation.
-        Saves the resulting map to the file specified in settings.
+        Saves the resulting map AND updates the live visualizer.
         """
         logger.info(f"Starting room scan: {self.scan_points_to_run} points, {self.steps_per_scan} steps per point.")
         self.map_data = []
+
+        # --- *** NEW *** ---
+        # Start the visualizer window if it exists
+        if self.visual_mapper:
+            self.visual_mapper.start()
 
         try:
             for i in range(self.scan_points_to_run):
                 current_angle = round(i * self.angle_per_scan, 1)
                 
-                # 1. Get distance reading from the controller
+                # 1. Get distance reading
                 distance_mm = await self.controller.get_infrared_distance()
                 
                 if distance_mm is not None:
@@ -67,13 +70,21 @@ class Mapper:
                 else:
                     logger.warning(f"Scan {i} at angle {current_angle}°: Failed to get IR reading.")
                 
-                # --- FIX 2 ---
-                # Rotate to the next scan point.
-                # We remove the 'if' check to ensure the robot performs
-                # all 12 steps to complete the full 360-degree circle.
+                # --- *** NEW *** ---
+                # Send data to the live visualizer
+                if self.visual_mapper:
+                    self.visual_mapper.update_map(current_angle, distance_mm, current_angle)
+
+                # 2. Rotate to the next scan point
                 await self.controller.move(MoveRobotDirection.LEFTWARD, self.steps_per_scan)
                 
-                # Give the robot a moment to stabilize after moving
+                # --- *** NEW *** ---
+                # Update visualizer again to show the *new* heading after turning
+                next_heading = round((i + 1) * self.angle_per_scan, 1)
+                if self.visual_mapper:
+                    # Send None for distance so it only updates the heading
+                    self.visual_mapper.update_map(current_angle, None, next_heading)
+
                 await asyncio.sleep(0.2) 
 
             # 3. Save the completed map to a file
@@ -84,6 +95,12 @@ class Mapper:
         except Exception as e:
             logger.error(f"An error occurred during room scan: {e}", exc_info=True)
             return False
+        
+        finally:
+            # --- *** NEW *** ---
+            # Stop the visualizer thread
+            if self.visual_mapper:
+                self.visual_mapper.stop()
 
     def _save_map_to_file(self):
         """
