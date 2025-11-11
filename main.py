@@ -1,5 +1,3 @@
-# File: main.py
-
 import asyncio
 import logging
 import sys
@@ -26,7 +24,6 @@ from ai.security import SecurityManager
 from ai.memory import MemoryManager
 
 # --- Setup Logging ---
-# Configure logging to show info-level messages
 logging.basicConfig(
     level=settings.LOG_LEVEL,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -38,7 +35,6 @@ logger = logging.getLogger(__name__)
 class PostmanApp:
     """
     The main application class that orchestrates all robot subsystems.
-    It holds instances of all managers and runs the main event loops.
     """
     def __init__(self):
         # Initialize all modules
@@ -51,15 +47,18 @@ class PostmanApp:
         self.memory = MemoryManager()
         self.recorder = RouteRecorder()
         
-        self.state_manager = StateManager(self.controller, self.ai)
+        # --- *** MODIFIED *** ---
+        # Pass the memory manager to the state manager
+        self.state_manager = StateManager(self.controller, self.ai, self.memory)
+        
         self.conversation = ConversationFlow(self.state_manager)
         
-        # A queue to hold message jobs that are ready for delivery
         self.delivery_queue = asyncio.Queue()
 
     async def boot_sequence(self):
         """
         Runs the initial "Booting" state logic.
+        (Function unchanged)
         """
         logger.info("--- 🤖 ROBOT BOOTING ---")
         set_state(mode=AppMode.BOOTING)
@@ -108,6 +107,12 @@ class PostmanApp:
                     # 4. Decide what to do with the intent
                     if intent == "SEND_MESSAGE":
                         set_state(mode=AppMode.COMPOSING)
+                        
+                        # --- *** NEW *** ---
+                        # Start a new log and add the user's first command
+                        self.memory.start_conversation_log()
+                        self.memory.log_exchange("user", text)
+                        
                         self.conversation.start_new_message_flow(ai_data)
                     
                     elif intent == "FRIENDLY_CHAT":
@@ -118,11 +123,9 @@ class PostmanApp:
                             await self.state_manager.safe_say("That's nice to hear. How can I help you?")
                     
                     elif intent == "CONFIRM_NO":
-                        # User said "no" to a question like "any other messages?"
                         await self.state_manager.safe_say("Okay, I'll be here if you need me.")
                     
                     elif intent == "UNKNOWN":
-                        # User said something the AI just didn't get
                         await self.state_manager.safe_say("I'm sorry, I didn't understand that command.")
 
                 # 5. Check if a conversation is active
@@ -134,6 +137,10 @@ class PostmanApp:
                         if not state["isSpeaking"] and not state["isWalking"]:
                             await self.state_manager.safe_say(prompts.ERROR_LISTEN_TIMEOUT)
                         continue
+
+                    # --- *** NEW *** ---
+                    # Log the user's response in the conversation
+                    self.memory.log_exchange("user", text)
 
                     ai_data = await self.state_manager.safe_analyze_ai(text)
                     if not ai_data:
@@ -149,8 +156,7 @@ class PostmanApp:
                         await self.delivery_queue.put(job)
                 
                 else:
-                    # Robot is busy (mode is SENDING, RECEIVING, etc.)
-                    # Wait 1 second before checking again.
+                    # Robot is busy
                     await asyncio.sleep(1)
                     
             except Exception as e:
@@ -161,33 +167,27 @@ class PostmanApp:
     async def delivery_loop(self):
         """
         The main "Postman" loop.
-        Waits for jobs in the queue and processes them one by one.
+        (Function unchanged)
         """
         while True:
             try:
-                # 1. Wait for a job
                 job = await self.delivery_queue.get()
                 
-                # Now that we have a job, we take control.
                 logger.info(f"--- 📬 STARTING DELIVERY for job {job['id']} ---")
                 
-                # 2. Set SENDING state
                 set_state(mode=AppMode.SENDING)
                 await self.state_manager.safe_say(prompts.PROMPT_SENDING_MESSAGES)
                 
-                # 3. Get the route
                 route_plan = await self.get_route_for_job(job)
                 
                 if not route_plan:
                     await self.state_manager.safe_say(f"I'm sorry, I could not understand the address for {job['recipient_name']}.")
-                    set_state(mode=AppMode.WORKING) # Go back to working
+                    set_state(mode=AppMode.WORKING)
                     self.delivery_queue.task_done()
                     continue
 
-                # 4. Execute the delivery
                 delivery_success = await self.execute_delivery_flow(job, route_plan)
                 
-                # 5. Go home
                 if delivery_success:
                     logger.info("Delivery successful. Returning to start.")
                     set_state(mode=AppMode.RETURNING)
@@ -195,11 +195,10 @@ class PostmanApp:
                 else:
                     logger.warning("Delivery failed. Returning to start.")
                     set_state(mode=AppMode.RETURNING)
-                    await self.go_home() # Go home even if it fails
+                    await self.go_home()
                 
-                # 6. Delivery is 100% complete. Now ask for more messages.
                 logger.info(f"--- 📬 DELIVERY COMPLETE for job {job['id']} ---")
-                set_state(mode=AppMode.WORKING) # Set mode back to WORKING
+                set_state(mode=AppMode.WORKING)
                 await self.state_manager.safe_say(prompts.PROMPT_ANY_OTHER_MESSAGES)
                 
                 self.delivery_queue.task_done()
@@ -209,12 +208,20 @@ class PostmanApp:
                 await self.state_manager.safe_say(prompts.ERROR_GENERIC)
 
     async def get_route_for_job(self, job: Dict[str, Any]) -> Optional[RoutePlan]:
+        """
+        (Function unchanged, but now logs user's "yes" or "no")
+        """
         recipient_name = job['recipient_name']
         known_route = self.memory.get_known_route_for_recipient(recipient_name)
         
         if known_route:
             await self.state_manager.safe_say(prompts.RETURN_TO_SENDER_CONFIRM_ADDRESS.format(recipient_name))
             text = await self.state_manager.safe_listen()
+            
+            # --- *** NEW *** ---
+            # Log this "meta" confirmation as well
+            self.memory.log_exchange("user", text) 
+            
             if text:
                 ai_data = await self.state_manager.safe_analyze_ai(text)
                 if ai_data and ai_data.get('intent') == "CONFIRM_YES":
@@ -230,7 +237,7 @@ class PostmanApp:
     async def execute_delivery_flow(self, job: Dict[str, Any], route_plan: RoutePlan) -> bool:
         """
         Handles the full SENDING -> RECEIVING -> Security check logic.
-        (MODIFIED for a more natural interaction flow)
+        Now logs the delivery conversation.
         """
         # 1. Save route for return trip
         self.recorder.save_route_for_return(route_plan)
@@ -244,36 +251,48 @@ class PostmanApp:
         # 3. Arrived at destination, switch to RECEIVING mode
         set_state(mode=AppMode.RECEIVING)
         
-        # 4. --- *** THIS IS THE FIX *** ---
-        # Combine "knock" and "identity check" and ask immediately.
+        # --- *** NEW *** ---
+        # Load the composing log from disk to append to it
+        self.memory.load_conversation_log(job['id'])
+        
+        # 4. Combine "knock" and "identity check"
         await self.state_manager.safe_say(
             f"{prompts.RECEIVER_KNOCK} {prompts.RECEIVER_CONFIRM_IDENTITY.format(job['recipient_name'])}"
         )
         
         # 5. Wait for identity confirmation
         text = await self.state_manager.safe_listen()
+        
+        # --- *** NEW *** ---
+        # Log recipient's response
+        self.memory.log_exchange("user", text)
+        
         if not text: 
-            # If they don't answer, use the ERROR_NO_ANSWER prompt
             await self.state_manager.safe_say(prompts.ERROR_NO_ANSWER)
+            self.memory.finalize_conversation_log(job['id']) # Save what we have
             return False
             
         ai_data = await self.state_manager.safe_analyze_ai(text)
         if not ai_data or ai_data.get('intent') != 'CONFIRM_YES':
-            # User said "no, I'm not Oksana"
             await self.state_manager.safe_say("My mistake. I will return this message.")
+            self.memory.finalize_conversation_log(job['id']) # Save what we have
             return False
 
-        # --- *** THIS IS THE SECOND FIX *** ---
         # 5.5. Announce who the message is from
         await self.state_manager.safe_say(prompts.RECEIVER_MESSAGE_ANNOUNCE.format(job['sender_name']))
-        # --- *** END OF FIXES *** ---
 
         # 6. Check protection
         if job['password']:
             await self.state_manager.safe_say(prompts.RECEIVER_ASK_FOR_PASSWORD)
             text = await self.state_manager.safe_listen()
+            
+            # --- *** NEW *** ---
+            # Log recipient's password attempt
+            self.memory.log_exchange("user", text)
+            
             if not text: 
                 await self.state_manager.safe_say(prompts.ERROR_LISTEN_TIMEOUT)
+                self.memory.finalize_conversation_log(job['id']) # Save what we have
                 return False
                 
             ai_data = await self.state_manager.safe_analyze_ai(text)
@@ -284,19 +303,26 @@ class PostmanApp:
                 await self.state_manager.safe_say(prompts.RECEIVER_ASK_FOR_PASSPORT)
                 if not await self.security.verify_identity(job['recipient_name']):
                     await self.state_manager.safe_say(prompts.ERROR_IDENTITY_FAIL)
+                    self.memory.finalize_conversation_log(job['id']) # Save what we have
                     return False
         
         # 7. All checks passed. Deliver message.
-        # We already announced the sender, so just give the body.
         await self.state_manager.safe_say(f"The message is: {job['message_body']}")
         
         # 8. Save this successful route to memory
         self.memory.save_route_for_recipient(job['recipient_name'], route_plan)
         await self.state_manager.safe_say(prompts.SAVING_NEW_ADDRESS.format(job['recipient_name']))
         
+        # --- *** NEW *** ---
+        # Finalize the *complete* log (composing + delivery)
+        self.memory.finalize_conversation_log(job['id'])
+        
         return True
 
     async def safe_execute_route(self, route_plan: RoutePlan) -> bool:
+        """
+        (Function unchanged)
+        """
         set_state(isWalking=True)
         try:
             for (direction, steps) in route_plan:
@@ -316,6 +342,9 @@ class PostmanApp:
             set_state(isWalking=False)
 
     async def go_home(self):
+        """
+        (Function unchanged)
+        """
         return_route = self.recorder.get_return_route()
         if return_route:
             await self.state_manager.safe_say(prompts.HEADING_BACK_TO_START)
@@ -330,6 +359,9 @@ class PostmanApp:
             logger.warning("Could not get a return route. Staying in place.")
 
     async def run(self):
+        """
+        (Function unchanged)
+        """
         try:
             if not await self.controller.connect():
                 logger.critical("Failed to connect to robot. Exiting.")

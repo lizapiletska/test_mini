@@ -1,5 +1,3 @@
-# File: ai/conversation_flow.py
-
 import asyncio
 import logging
 from enum import Enum, auto
@@ -10,46 +8,43 @@ from config import prompts
 # Avoid circular imports for type hinting
 if TYPE_CHECKING:
     from core.state_manager import StateManager
+    # --- *** NEW *** ---
+    from ai.memory import MemoryManager
 
 logger = logging.getLogger(__name__)
 
-# --- *** NEW: Stop words to validate against *** ---
 INVALID_NAMES = ["this", "for", "a", "an", "the", "is", "to", "message"]
 
-
-# This defines the internal state of the conversation
 class ConversationStep(Enum):
-    IDLE = auto()                    # Doing nothing
-    AWAITING_MESSAGE_BODY = auto()   # Just got "send message" intent
-    AWAITING_SENDER_NAME = auto()    # Got message, asking who it's from
-    AWAITING_RECIPIENT_NAME = auto() # Got sender, asking who it's for
-    AWAITING_PROTECTION = auto()     # Got recipient, asking about password
-    AWAITING_PASSWORD = auto()       # User said "yes" to protection
-    AWAITING_ADDRESS = auto()        # Got protection info, asking for address
-    READY_TO_SEND = auto()           # All info collected, job is complete
+    IDLE = auto()
+    AWAITING_MESSAGE_BODY = auto()
+    AWAITING_SENDER_NAME = auto()
+    AWAITING_RECIPIENT_NAME = auto()
+    AWAITING_PROTECTION = auto()
+    AWAITING_PASSWORD = auto()
+    AWAITING_ADDRESS = auto()
+    READY_TO_SEND = auto()
 
 
 class ConversationFlow:
     """
     Manages the stateful, multi-step conversation for composing a message.
-    
-    This class is instantiated by the AIOrchestrator or main loop and
-    is used to handle a single "send message" job.
     """
 
     def __init__(self, state_manager: 'StateManager'):
         self.state_manager = state_manager
+        # --- *** NEW *** ---
+        # Get the memory manager instance from the state manager
+        self.memory: 'MemoryManager' = self.state_manager.memory
+        
         self.current_step = ConversationStep.IDLE
-        
-        # This dictionary will store the message as it's built
         self.message_job: Dict[str, Any] = {}
-        
-        # This will be the final packaged job
         self.completed_job: Optional[Dict[str, Any]] = None
 
     def start_new_message_flow(self, initial_ai_data: Dict[str, Any]):
         """
         Kicks off the conversation from a "SEND_MESSAGE" intent.
+        (Function unchanged)
         """
         logger.info("Starting new message composition flow")
         self.current_step = ConversationStep.IDLE
@@ -62,15 +57,13 @@ class ConversationFlow:
             "address_text": None,
         }
         
-        # Start the first step
         self.current_step = ConversationStep.AWAITING_MESSAGE_BODY
-        # We use a task so this can run without blocking the main loop
         asyncio.create_task(self.state_manager.safe_say(prompts.PROMPT_FOR_MESSAGE))
 
     async def handle_ai_response(self, ai_data: Dict[str, Any]):
         """
-        The main state machine. This is called by the main loop
-        every time the user says something *during* a conversation.
+        The main state machine.
+        (Only one change in step 6)
         """
         intent = ai_data.get("intent")
         
@@ -87,7 +80,6 @@ class ConversationFlow:
         # --- 2. Awaiting Sender Name ---
         elif self.current_step == ConversationStep.AWAITING_SENDER_NAME:
             if intent == "PROVIDE_SENDER_NAME":
-                # --- *** ADDED VALIDATION *** ---
                 name = ai_data.get("sender_name")
                 if not name or name.lower() in INVALID_NAMES:
                     logger.warning(f"AI extracted an invalid sender name: '{name}'. Re-asking")
@@ -104,7 +96,6 @@ class ConversationFlow:
         # --- 3. Awaiting Recipient Name ---
         elif self.current_step == ConversationStep.AWAITING_RECIPIENT_NAME:
             if intent == "PROVIDE_RECIPIENT_NAME":
-                # --- *** ADDED VALIDATION *** ---
                 name = ai_data.get("recipient_name")
                 if not name or name.lower() in INVALID_NAMES:
                     logger.warning(f"AI extracted an invalid recipient name: '{name}'. Re-asking")
@@ -129,7 +120,6 @@ class ConversationFlow:
                 await self.state_manager.safe_say(prompts.PROMPT_FOR_ADDRESS)
             
             elif intent == "PROVIDE_PASSWORD":
-                # --- *** ADDED VALIDATION *** ---
                 password = ai_data.get("password")
                 if not password:
                     logger.warning("AI detected PROVIDE_PASSWORD but extracted no entity. Re-asking")
@@ -146,7 +136,6 @@ class ConversationFlow:
         # --- 5. Awaiting Password ---
         elif self.current_step == ConversationStep.AWAITING_PASSWORD:
             if intent == "PROVIDE_PASSWORD":
-                # --- *** ADDED VALIDATION *** ---
                 password = ai_data.get("password")
                 if not password:
                     logger.warning("AI detected PROVIDE_PASSWORD but extracted no entity. Re-asking")
@@ -162,7 +151,6 @@ class ConversationFlow:
         # --- 6. Awaiting Address ---
         elif self.current_step == ConversationStep.AWAITING_ADDRESS:
             if intent == "PROVIDE_ADDRESS":
-                # --- *** ADDED VALIDATION *** ---
                 address = ai_data.get("address_text")
                 if not address:
                     logger.warning("AI detected PROVIDE_ADDRESS but extracted no entity. Re-asking")
@@ -175,16 +163,19 @@ class ConversationFlow:
                     self.current_step = ConversationStep.READY_TO_SEND
                     self.completed_job = self.message_job
                     
-                    # Generate a message ID
                     message_id = hash(self.message_job["message_body"]) & 0xfffff
                     self.completed_job["id"] = message_id
                     
                     logger.info(f"Message job complete: {self.completed_job}")
+
+                    # --- *** NEW *** ---
+                    # Save the composing conversation to its file.
+                    self.memory.finalize_conversation_log(str(message_id))
+                    
                     await self.state_manager.safe_say(
                         prompts.PROMPT_MESSAGE_ID_CONFIRM.format(message_id)
                     )
                     
-                    # Reset flow back to idle
                     self.current_step = ConversationStep.IDLE
             else:
                 await self.state_manager.safe_say("I didn't understand the address. " + prompts.PROMPT_FOR_ADDRESS)

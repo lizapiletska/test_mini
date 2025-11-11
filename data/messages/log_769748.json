@@ -1,0 +1,112 @@
+[
+    {
+        "timestamp": "2025-11-12T00:26:48.992925",
+        "speaker": "user",
+        "text": "I want to send a message."
+    },
+    {
+        "timestamp": "2025-11-12T00:26:55.062510",
+        "speaker": "robot",
+        "text": "Please say your message clearly."
+    },
+    {
+        "timestamp": "2025-11-12T00:27:04.484489",
+        "speaker": "robot",
+        "text": "I didn't hear anything. Let's try again."
+    },
+    {
+        "timestamp": "2025-11-12T00:27:06.990280",
+        "speaker": "user",
+        "text": "My message is, I Like You."
+    },
+    {
+        "timestamp": "2025-11-12T00:27:17.824676",
+        "speaker": "robot",
+        "text": "Got it. Please tell me your name."
+    },
+    {
+        "timestamp": "2025-11-12T00:27:26.527556",
+        "speaker": "user",
+        "text": "My name is Liza."
+    },
+    {
+        "timestamp": "2025-11-12T00:27:35.816873",
+        "speaker": "robot",
+        "text": "And who is this message for?"
+    },
+    {
+        "timestamp": "2025-11-12T00:27:59.873383",
+        "speaker": "robot",
+        "text": "I didn't hear anything. Let's try again."
+    },
+    {
+        "timestamp": "2025-11-12T00:28:15.758677",
+        "speaker": "robot",
+        "text": "I didn't hear anything. Let's try again."
+    },
+    {
+        "timestamp": "2025-11-12T00:28:31.379560",
+        "speaker": "robot",
+        "text": "I didn't hear anything. Let's try again."
+    },
+    {
+        "timestamp": "2025-11-12T00:28:35.332105",
+        "speaker": "user",
+        "text": "This message is for oxen."
+    },
+    {
+        "timestamp": "2025-11-12T00:28:46.918571",
+        "speaker": "robot",
+        "text": "Do you want to protect this message with a password?"
+    },
+    {
+        "timestamp": "2025-11-12T00:28:50.999286",
+        "speaker": "user",
+        "text": "My password is orange."
+    },
+    {
+        "timestamp": "2025-11-12T00:29:03.785032",
+        "speaker": "robot",
+        "text": "Please give me the address, for example: 50 steps forward, turn 90 left."
+    },
+    {
+        "timestamp": "2025-11-12T00:29:06.683301",
+        "speaker": "user",
+        "text": "1 step forward."
+    },
+    {
+        "timestamp": "2025-11-12T00:29:40.046948",
+        "speaker": "robot",
+        "text": "Knock knock. I have a delivery. Hello, are you oxen?"
+    },
+    {
+        "timestamp": "2025-11-12T00:29:43.560929",
+        "speaker": "user",
+        "text": "Yes, I am."
+    },
+    {
+        "timestamp": "2025-11-12T00:29:51.248733",
+        "speaker": "robot",
+        "text": "You have a message from Liza."
+    },
+    {
+        "timestamp": "2025-11-12T00:29:57.676517",
+        "speaker": "robot",
+        "text": "This message is protected. Please say the password."
+    },
+    {
+        "timestamp": "2025-11-12T00:30:01.054209",
+        "speaker": "user",
+        "text": "And the 5 stars is orange."
+    },
+    {
+        "timestamp": "2025-11-12T00:30:09.638874",
+        "speaker": "robot",
+        "text": "The message is: I Like You"
+    },
+    {
+        "timestamp": "2025-11-12T00:30:15.306985",
+        "speaker": "robot",
+        "text": "I have saved this new location for oxen."
+    }
+]
