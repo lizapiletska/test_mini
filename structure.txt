@@ -1,0 +1,47 @@
+alpha_postman_robot/
+│
+├── main.py                     # Entry point: Initializes context, robot, and starts the main loop.
+│
+├── core/
+│   ├── context.py              # The "React Context" analog. Uses contextvars to hold global state.
+│   ├── state_manager.py        # Contains guarded functions (e.g., safe_say, safe_listen) that check state.
+│   ├── app_modes.py            # Enum definitions for your modes (BOOTING, WORKING, SENDING, etc.)
+│   └── event_bus.py            # Optional: A pub/sub system for different modules to communicate.
+│
+├── robot/
+│   ├── controller.py           # Low-level wrapper for all Alpha Mini SDK commands (move, say, get_sensor).
+│   ├── navigation/
+│   │   ├── mapper.py           # Handles the "Booting" phase: spinning, scanning, and saving the room map.
+│   │   ├── planner.py          # A* or other algorithm for planning routes based on the map.
+│   │   └── obstacle_detector.py # Real-time sensor checking during movement (isWalking=True).
+│   └── movement/
+│       └── route_recorder.py   # Saves and replays routes (for "go back to start").
+│
+├── ai/
+│   ├── orchestrator.py         # The "brain." Receives input, checks state, and decides the next action.
+│   ├── nlu.py                  # Natural Language Understanding: Extracts intents (e.g., "send_message").
+│   ├── conversation_flow.py    # Manages multi-step dialogs (asking for message, recipient, password).
+│   ├── security.py             # Handles password verification and "passport" (face/name) checks.
+│   └── memory.py               # Remembers users, known addresses, and message IDs.
+│
+├── speech/
+│   ├── asr.py                  # Speech-to-Text (ASR) service wrapper (manages "isListening").
+│   └── tts.py                  # Text-to-Speech (TTS) service wrapper (manages "isSpeaking").
+│
+├── data/
+│   ├── maps/                   # Folder to store the generated room_map.json (or similar).
+│   ├── routes/                 # Stores saved routes to specific people/addresses.
+│   ├── profiles/               # Stores user profiles (face data, name, preferences).
+│   └── messages/               # Logs of pending or delivered messages.
+│
+├── config/
+│   ├── settings.py             # Stores constants, API keys, robot IP address, sensor thresholds.
+│   └── prompts.py              # Stores all the robot's pre-defined phrases ("Knock knock," etc.).
+│
+├── tests/
+│   ├── test_state_manager.py   # Unit tests for your state logic.
+│   ├── test_ai_orchestrator.py # Unit tests for your AI decision logic.
+│   └── test_navigation.py      # Unit tests for pathfinding.
+│
+├── requirements.txt            # All Python dependencies (e.g., ubt-robot-mini-sdk).
+└── README.md                   # Project documentation.

@@ -1,0 +1,50 @@
+[
+    {
+        "angle": 0.0,
+        "distance_mm": 1500
+    },
+    {
+        "angle": 30.0,
+        "distance_mm": 1500
+    },
+    {
+        "angle": 60.0,
+        "distance_mm": 814
+    },
+    {
+        "angle": 90.0,
+        "distance_mm": 815
+    },
+    {
+        "angle": 120.0,
+        "distance_mm": 1500
+    },
+    {
+        "angle": 150.0,
+        "distance_mm": 1500
+    },
+    {
+        "angle": 180.0,
+        "distance_mm": 1500
+    },
+    {
+        "angle": 210.0,
+        "distance_mm": 1500
+    },
+    {
+        "angle": 240.0,
+        "distance_mm": 766
+    },
+    {
+        "angle": 270.0,
+        "distance_mm": 746
+    },
+    {
+        "angle": 300.0,
+        "distance_mm": 1500
+    },
+    {
+        "angle": 330.0,
+        "distance_mm": 1500
+    }
+]

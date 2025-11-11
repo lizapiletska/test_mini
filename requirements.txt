@@ -1,0 +1,15 @@
+# === Alpha Mini Robot SDK ===
+# The core library for controlling the robot
+alphamini
+
+# SDK dependencies you identified
+protobuf==3.20.3
+websockets==10.3
+
+# === Local AI ===
+# Python client for running local models like Mistral with Ollama
+ollama
+
+# === Utilities ===
+# Good practice for managing environment variables (e.g., API keys)
+# python-dotenv
