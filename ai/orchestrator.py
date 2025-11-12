@@ -37,8 +37,10 @@ You must also extract entities from the text:
 - "sender_name": The name of the person sending the message (e.g., "Person A", "Alice").
 - "message_body": The content of the message.
 - "password": The secret word (e.g., "oranges").
-- "address_text": The raw text of the navigation command (e.g., "50 steps forward turn 90").
 - "response_text": A generated reply ONLY for the FRIENDLY_CHAT intent.
+- "route_plan": A JSON array of navigation steps. Each object in the 
+  array must have a "direction" (string: "FORWARD", "BACKWARD", 
+  "LEFTWARD", "RIGHTWARD") and a "value" (integer).
 
 # --- *** CRITICAL RULES *** ---
 1.  **ALWAYS** respond with *only* a valid JSON object.
@@ -46,27 +48,94 @@ You must also extract entities from the text:
 3.  If the intent is `FRIENDLY_CHAT`, you **MUST** also generate a brief,
     friendly `response_text` to answer the user.
 4.  If the user says "my name is [NAME]" or "I am [NAME]" or "it's from [NAME]",
-    the intent is **ALWAYS** `PROVIDE_SENDER_NAME` and you **MUST**
-    extract the `sender_name`.
+    the intent is **ALWAYS** `PROVIDE_SENDER_NAME`.
 5.  If the user says "this is for [NAME]" or "send it to [NAME]",
-    the intent is **ALWAYS** `PROVIDE_RECIPIENT_NAME` and you **MUST**
-    extract the `recipient_name`.
+    the intent is **ALWAYS** `PROVIDE_RECIPIENT_NAME`.
 6.  If the user says "the password is [PASSWORD]" or "password is [PASSWORD]",
-    the intent is **ALWAYS** `PROVIDE_PASSWORD` and you **MUST**
-    extract the `password`.
+    the intent is **ALWAYS** `PROVIDE_PASSWORD`.
 7.  If the user says "no", "no thank you", "no more messages", "cancel", or "stop",
     the intent is **ALWAYS** `CONFIRM_NO`.
 8.  If the user says "yes", "yes i am", "i am", "that is me", "correct",
     the intent is **ALWAYS** `CONFIRM_YES`.
 9.  If an entity is not provided, you **MUST** return `null` for that entity's value.
 10. If the text is a single word that could be an entity (like "Orange" or "Lisa"),
-    you **MUST** classify it as the correct intent (`PROVIDE_PASSWORD`
-    or `PROVIDE_SENDER_NAME`) and extract the entity.
+    you **MUST** classify it as the correct intent.
 11. If you are not confident, set the intent to "UNKNOWN".
+12. If the intent is `PROVIDE_ADDRESS`, you **MUST** parse the text 
+    into a `route_plan` array. You must not use `address_text`.
+13. **VALUES:**
+    - For "FORWARD" and "BACKWARD", the "value" is in **steps**.
+    - For "LEFTWARD" and "RIGHTWARD", the "value" is in **degrees** (e.g., 90, 180).
+14. If a user just says "turn left" or "turn right", **assume 90 degrees**.
+15. If a user says "turn around" or "turn 180", use **180 degrees**.
 
 # --- *** COMPREHENSIVE EXAMPLES *** ---
 
 ## (INTENT: SEND_MESSAGE)
+User: "Hi robot, I want you to send a message to Person B."
+{
+  "intent": "SEND_MESSAGE",
+  "recipient_name": "Person B"
+}
+
+## (INTENT: PROVIDE_SENDER_NAME)
+User: "My name is Lisa."
+{
+  "intent": "PROVIDE_SENDER_NAME",
+  "sender_name": "Lisa"
+}
+
+## (INTENT: PROVIDE_ADDRESS)
+User: "12 steps forward."
+{
+  "intent": "PROVIDE_ADDRESS",
+  "route_plan": [
+    {"direction": "FORWARD", "value": 12}
+  ]
+}
+
+User: "Turn to left 12 steps forward."
+{
+  "intent": "PROVIDE_ADDRESS",
+  "route_plan": [
+    {"direction": "LEFTWARD", "value": 90},
+    {"direction": "FORWARD", "value": 12}
+  ]
+}
+
+User: "go 50 steps forward and then turn right 90 degrees"
+{
+  "intent": "PROVIDE_ADDRESS",
+  "route_plan": [
+    {"direction": "FORWARD", "value": 50},
+    {"direction": "RIGHTWARD", "value": 90}
+  ]
+}
+
+User: "turn around and go back 10 steps"
+{
+  "intent": "PROVIDE_ADDRESS",
+  "route_plan": [
+    {"direction": "LEFTWARD", "value": 180},
+    {"direction": "BACKWARD", "value": 10}
+  ]
+}
+
+User: "5 steps forward, turn left, 5 steps forward."
+{
+  "intent": "PROVIDE_ADDRESS",
+  "route_plan": [
+    {"direction": "FORWARD", "value": 5},
+    {"direction": "LEFTWARD", "value": 90},
+    {"direction": "FORWARD", "value": 5}
+  ]
+}
+
+## (INTENT: CONFIRM_YES)
+User: "Yes, I am."
+{
+  "intent": "CONFIRM_YES"
+}
 User: "Hi robot, I want you to send a message to Person B."
 {
   "intent": "SEND_MESSAGE",
@@ -224,8 +293,6 @@ class AIOrchestrator:
         logger.info(f"AI analyzing text: '{text}'")
 
         try:
-            # We run this in a separate thread (default for ollama client)
-            # to avoid blocking our main asyncio event loop.
             response = self.client.chat(
                 model=settings.OLLAMA_MODEL,
                 messages=[
@@ -238,10 +305,8 @@ class AIOrchestrator:
             raw_response_text = response['message']['content']
             logger.debug(f"AI raw JSON output: {raw_response_text}")
 
-            # Parse the JSON string from the AI's response
             ai_data = json.loads(raw_response_text)
             
-            # Basic validation
             if 'intent' not in ai_data:
                 logger.warning("AI response missing 'intent'. Defaulting to UNKNOWN.")
                 return {"intent": "UNKNOWN", "original_text": text}

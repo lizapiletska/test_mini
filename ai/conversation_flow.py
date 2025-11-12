@@ -1,3 +1,5 @@
+# File: ai/conversation_flow.py
+
 import asyncio
 import logging
 from enum import Enum, auto
@@ -8,7 +10,6 @@ from config import prompts
 # Avoid circular imports for type hinting
 if TYPE_CHECKING:
     from core.state_manager import StateManager
-    # --- *** NEW *** ---
     from ai.memory import MemoryManager
 
 logger = logging.getLogger(__name__)
@@ -33,8 +34,6 @@ class ConversationFlow:
 
     def __init__(self, state_manager: 'StateManager'):
         self.state_manager = state_manager
-        # --- *** NEW *** ---
-        # Get the memory manager instance from the state manager
         self.memory: 'MemoryManager' = self.state_manager.memory
         
         self.current_step = ConversationStep.IDLE
@@ -44,7 +43,6 @@ class ConversationFlow:
     def start_new_message_flow(self, initial_ai_data: Dict[str, Any]):
         """
         Kicks off the conversation from a "SEND_MESSAGE" intent.
-        (Function unchanged)
         """
         logger.info("Starting new message composition flow")
         self.current_step = ConversationStep.IDLE
@@ -54,7 +52,8 @@ class ConversationFlow:
             "recipient_name": initial_ai_data.get("recipient_name"),
             "message_body": initial_ai_data.get("message_body"),
             "password": None,
-            "address_text": None,
+            # --- *** MODIFIED *** ---
+            "route_plan": None, 
         }
         
         self.current_step = ConversationStep.AWAITING_MESSAGE_BODY
@@ -63,7 +62,6 @@ class ConversationFlow:
     async def handle_ai_response(self, ai_data: Dict[str, Any]):
         """
         The main state machine.
-        (Only one change in step 6)
         """
         intent = ai_data.get("intent")
         
@@ -151,13 +149,18 @@ class ConversationFlow:
         # --- 6. Awaiting Address ---
         elif self.current_step == ConversationStep.AWAITING_ADDRESS:
             if intent == "PROVIDE_ADDRESS":
-                address = ai_data.get("address_text")
-                if not address:
-                    logger.warning("AI detected PROVIDE_ADDRESS but extracted no entity. Re-asking")
+                
+                # --- *** MODIFIED *** ---
+                # Get the new structured route_plan from the AI
+                route_plan_json = ai_data.get("route_plan")
+                
+                if not route_plan_json:
+                    logger.warning("AI detected PROVIDE_ADDRESS but extracted no route_plan. Re-asking")
                     await self.state_manager.safe_say("I didn't understand the address. " + prompts.PROMPT_FOR_ADDRESS)
                 else:
-                    self.message_job["address_text"] = address
-                    logger.info(f"Got address: {self.message_job['address_text']}")
+                    # Save the AI-generated JSON to the job
+                    self.message_job["route_plan"] = route_plan_json
+                    logger.info(f"Got AI route_plan: {self.message_job['route_plan']}")
                     
                     # --- ALL INFO GATHERED ---
                     self.current_step = ConversationStep.READY_TO_SEND
@@ -167,8 +170,7 @@ class ConversationFlow:
                     self.completed_job["id"] = message_id
                     
                     logger.info(f"Message job complete: {self.completed_job}")
-
-                    # --- *** NEW *** ---
+                    
                     # Save the composing conversation to its file.
                     self.memory.finalize_conversation_log(str(message_id))
                     

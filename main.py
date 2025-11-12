@@ -25,7 +25,7 @@ from ai.conversation_flow import ConversationFlow, ConversationStep
 from ai.security import SecurityManager
 from ai.memory import MemoryManager
 
-# --- *** NEW *** ---
+# --- NEW ---
 from vision.visual_mapper import VisualMapper
 from core.delivery_flow import DeliveryFlow
 from core.robot_state import RobotState
@@ -76,6 +76,8 @@ class PostmanApp:
         self.state_manager = StateManager(self.controller, self.ai, self.memory)
         self.conversation = ConversationFlow(self.state_manager)
         
+        # --- *** MODIFIED *** ---
+        # Pass the new modules to DeliveryFlow
         self.delivery_flow = DeliveryFlow(
             self.state_manager,
             self.memory,
@@ -83,11 +85,26 @@ class PostmanApp:
             self.security,
             self.recorder,
             self.detector,
-            self.movement_controller
+            self.movement_controller,
+            self.robot_state,      # <-- NEW
+            self.visual_mapper     # <-- NEW
         )
         
         # 7. Job Queue
         self.delivery_queue = asyncio.Queue()
+
+    # --- *** NEW FUNCTION *** ---
+    def load_and_plot_saved_locations(self):
+        """
+        Loads all saved profile locations from disk and
+        tells the visualizer to plot them.
+        """
+        try:
+            locations = self.memory.get_all_saved_locations()
+            if locations:
+                self.visual_mapper.load_permanent_locations(locations)
+        except Exception as e:
+            logger.error(f"Failed to load and plot saved locations: {e}")
 
     async def boot_sequence(self):
         """
@@ -98,28 +115,31 @@ class PostmanApp:
         
         await self.state_manager.safe_say(prompts.BOOT_GREETING)
         
-        # --- *** NEW *** ---
-        # Start the visualizer window. It will now stay open.
+        # Start the visualizer window.
         self.visual_mapper.start()
+        
+        # --- *** MODIFIED *** ---
+        # Load saved profiles *before* scanning
+        self.load_and_plot_saved_locations()
         
         if not self.mapper.load_map_from_file():
             logger.info("No map file found. Starting new room scan.")
             await self.state_manager.safe_say(prompts.BOOT_START_SCAN)
-            # This will now update the live window
             await self.mapper.scan_and_build_map() 
         else:
             logger.info("Successfully loaded existing map file.")
-            
+            map_data = self.mapper.get_map_data()
+            if map_data:
+                self.visual_mapper.load_obstacles(map_data)
+        
         await self.state_manager.safe_say(prompts.BOOT_SYSTEM_READY)
-        
         set_state(mode=AppMode.WORKING)
-        
         logger.info("--- 🤖 BOOTING COMPLETE ---")
 
     async def work_loop(self):
         """
         The main "Working" loop.
-        (Unchanged from your last version)
+        (Unchanged)
         """
         while True:
             try:
@@ -191,7 +211,7 @@ class PostmanApp:
     async def delivery_loop(self):
         """
         The main "Postman" loop.
-        (Delegates all logic to the DeliveryFlow)
+        (Unchanged)
         """
         while True:
             try:
@@ -234,6 +254,7 @@ class PostmanApp:
     async def run(self):
         """
         Main entry point for the application.
+        (Unchanged)
         """
         try:
             if not await self.controller.connect():
@@ -250,8 +271,6 @@ class PostmanApp:
         except asyncio.CancelledError:
             logger.info("Application shutting down...")
         finally:
-            # --- *** NEW *** ---
-            # Stop the visualizer thread on shutdown
             if self.visual_mapper:
                 self.visual_mapper.stop()
             

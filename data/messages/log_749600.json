@@ -1,0 +1,82 @@
+[
+    {
+        "timestamp": "2025-11-13T00:40:39.300786",
+        "speaker": "user",
+        "text": "I want to send a message."
+    },
+    {
+        "timestamp": "2025-11-13T00:40:44.516539",
+        "speaker": "robot",
+        "text": "Please say your message clearly."
+    },
+    {
+        "timestamp": "2025-11-13T00:40:48.789046",
+        "speaker": "user",
+        "text": "My message is hello."
+    },
+    {
+        "timestamp": "2025-11-13T00:40:59.352816",
+        "speaker": "robot",
+        "text": "Got it. Please tell me your name."
+    },
+    {
+        "timestamp": "2025-11-13T00:41:01.500869",
+        "speaker": "user",
+        "text": "My name is Liza."
+    },
+    {
+        "timestamp": "2025-11-13T00:41:11.422853",
+        "speaker": "robot",
+        "text": "And who is this message for?"
+    },
+    {
+        "timestamp": "2025-11-13T00:41:14.693899",
+        "speaker": "user",
+        "text": "This message is for Oksana."
+    },
+    {
+        "timestamp": "2025-11-13T00:41:25.165023",
+        "speaker": "robot",
+        "text": "Do you want to protect this message with a password?"
+    },
+    {
+        "timestamp": "2025-11-13T00:41:27.568420",
+        "speaker": "user",
+        "text": "Password is orange."
+    },
+    {
+        "timestamp": "2025-11-13T00:41:40.633518",
+        "speaker": "robot",
+        "text": "Please give me the address, for example: 50 steps forward, turn 90 left."
+    },
+    {
+        "timestamp": "2025-11-13T00:41:45.192622",
+        "speaker": "user",
+        "text": "5 steps forward. Turn left, 5 steps forward."
+    },
+    {
+        "timestamp": "2025-11-13T00:42:37.542073",
+        "speaker": "robot",
+        "text": "Knock knock. I have a delivery. Hello, are you Oksana?"
+    },
+    {
+        "timestamp": "2025-11-13T00:42:40.711834",
+        "speaker": "user",
+        "text": "Yes, I am."
+    },
+    {
+        "timestamp": "2025-11-13T00:42:49.130282",
+        "speaker": "robot",
+        "text": "You have a message from Liza."
+    },
+    {
+        "timestamp": "2025-11-13T00:42:55.376454",
+        "speaker": "robot",
+        "text": "This message is protected. Please say the password."
+    },
+    {
+        "timestamp": "2025-11-13T00:43:10.739278",
+        "speaker": "robot",
+        "text": "I didn't hear anything. Let's try again."
+    }
+]

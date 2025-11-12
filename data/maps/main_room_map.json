@@ -4,27 +4,19 @@
         "distance_mm": 1500
     },
     {
-        "angle": 30.0,
+        "angle": 330.0,
+        "distance_mm": 432
+    },
+    {
+        "angle": 300.0,
         "distance_mm": 1500
     },
     {
-        "angle": 60.0,
-        "distance_mm": 814
-    },
-    {
-        "angle": 90.0,
-        "distance_mm": 815
-    },
-    {
-        "angle": 120.0,
+        "angle": 270.0,
         "distance_mm": 1500
     },
     {
-        "angle": 150.0,
-        "distance_mm": 1500
-    },
-    {
-        "angle": 180.0,
+        "angle": 240.0,
         "distance_mm": 1500
     },
     {
@@ -32,19 +24,27 @@
         "distance_mm": 1500
     },
     {
-        "angle": 240.0,
-        "distance_mm": 766
+        "angle": 180.0,
+        "distance_mm": 438
     },
     {
-        "angle": 270.0,
-        "distance_mm": 746
+        "angle": 150.0,
+        "distance_mm": 320
     },
     {
-        "angle": 300.0,
-        "distance_mm": 1500
+        "angle": 120.0,
+        "distance_mm": 414
     },
     {
-        "angle": 330.0,
+        "angle": 90.0,
+        "distance_mm": 577
+    },
+    {
+        "angle": 60.0,
+        "distance_mm": 337
+    },
+    {
+        "angle": 30.0,
         "distance_mm": 1500
     }
 ]

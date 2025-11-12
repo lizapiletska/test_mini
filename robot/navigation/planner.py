@@ -2,7 +2,7 @@
 
 import re
 import logging
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 
 # Import the SDK's definitions for movement
 from mini.apis.api_action import MoveRobotDirection
@@ -14,89 +14,94 @@ logger = logging.getLogger(__name__)
 # It's a list of (Direction, Steps) tuples.
 RoutePlan = List[Tuple[MoveRobotDirection, int]]
 
+# Your robot's turning calibration
+ANGLE_PER_TURN_STEP_DEG = 360.0 / 12.0  # 30.0 degrees per step
+
+
 class Planner:
     """
-    Parses natural language navigation commands from the AI into an
-    executable route plan for the RobotController.
+    Translates an AI-generated JSON route plan into an
+    executable RoutePlan for the RobotController.
     """
 
     def __init__(self):
-        # We define simple regex patterns to find commands in the text.
-        # This looks for "forward", "back", "backward"
-        self.forward_pattern = re.compile(r'forward|forwar|foward')
-        self.backward_pattern = re.compile(r'backward|back|backwards')
-        
-        # This looks for "left" or "90 left"
-        self.left_pattern = re.compile(r'left|leftward')
-        # This looks for "right" or "90 right"
-        self.right_pattern = re.compile(r'right|rightward')
-        
-        # This finds any number (e.g., "50", "90")
-        self.number_pattern = re.compile(r'\d+')
+        """
+        Initializes the planner with a mapping from AI string commands
+        to the robot's SDK Enum values.
+        """
+        logger.info("Planner initialized. Will parse AI route_plan JSON.")
+        self.direction_map = {
+            "FORWARD": MoveRobotDirection.FORWARD,
+            "BACKWARD": MoveRobotDirection.BACKWARD,
+            "LEFTWARD": MoveRobotDirection.LEFTWARD,
+            "RIGHTWARD": MoveRobotDirection.RIGHTWARD,
+        }
 
-    def parse_address_to_route(self, text: str) -> Optional[RoutePlan]:
+    def _convert_degrees_to_steps(self, degrees: int) -> int:
         """
-        Main parsing method.
-        
-        Input: "Turn to left 12 steps forward"
-        Output: [ (MoveRobotDirection.LEFTWARD, 90), 
-                  (MoveRobotDirection.FORWARD, 12) ]
+        Converts a degree value from the AI into the
+        robot's hardware steps.
         """
-        logger.info(f"Parsing address string: '{text}'")
+        if degrees <= 0:
+            return 1  # Minimum 1 step
         
-        # --- *** THIS IS THE FIX *** ---
-        # We split by "and" or "then" to get command chunks. "turn" is part of a command.
-        commands = re.split(r'\s+then\s+|\s+and\s+', text.lower())
+        # Calculate steps and round to the nearest whole step
+        steps = int(round(degrees / ANGLE_PER_TURN_STEP_DEG))
+        return max(1, steps) # Ensure at least 1 step is returned
+
+    def parse_plan_to_route(self, ai_plan: List[Dict[str, Any]]) -> Optional[RoutePlan]:
+        """
+        Parses the AI-generated route_plan JSON array into an
+        executable RoutePlan.
+        
+        Input: [
+            {"direction": "FORWARD", "value": 5},
+            {"direction": "LEFTWARD", "value": None}  <-- This is the bug
+        ]
+        Output: [
+            (MoveRobotDirection.FORWARD, 5),
+            (MoveRobotDirection.LEFTWARD, 3)  <-- This is the fix
+        ]
+        """
+        if not ai_plan:
+            logger.error("AI route_plan is empty or None.")
+            return None
         
         route_plan: RoutePlan = []
         
-        for command in commands:
-            if not command.strip():
-                continue
-            
-            logger.debug(f"Parsing command chunk: '{command}'")
-            
-            # This chunk might contain multiple instructions, e.g., "turn left 12 steps forward"
-            # We check for all of them, not just the first one.
-            
-            # 1. Check for turns. Default to 90 degrees if no number is found.
-            if self.left_pattern.search(command):
-                number_match = self.number_pattern.search(command)
-                # If "forward" or "back" is also in the command, the number belongs to them.
-                if self.forward_pattern.search(command) or self.backward_pattern.search(command):
-                    value = 90 # Default turn
-                else:
-                    value = int(number_match.group(0)) if number_match else 90
-                route_plan.append((MoveRobotDirection.LEFTWARD, value))
+        for i, step in enumerate(ai_plan):
+            try:
+                direction_str = step.get("direction").upper()
+                sdk_direction = self.direction_map[direction_str]
+                value = step.get("value") # Get value, might be None
 
-            if self.right_pattern.search(command):
-                number_match = self.number_pattern.search(command)
-                if self.forward_pattern.search(command) or self.backward_pattern.search(command):
-                    value = 90 # Default turn
-                else:
-                    value = int(number_match.group(0)) if number_match else 90
-                route_plan.append((MoveRobotDirection.RIGHTWARD, value))
-            
-            # 2. Check for movement. These commands MUST have a number.
-            if self.forward_pattern.search(command):
-                number_match = self.number_pattern.search(command)
-                if number_match:
-                    value = int(number_match.group(0))
-                    route_plan.append((MoveRobotDirection.FORWARD, value))
-                else:
-                    logger.warning(f"Forward command chunk '{command}' has no number, skipping move.")
-            
-            if self.backward_pattern.search(command):
-                number_match = self.number_pattern.search(command)
-                if number_match:
-                    value = int(number_match.group(0))
-                    route_plan.append((MoveRobotDirection.BACKWARD, value))
-                else:
-                    logger.warning(f"Backward command chunk '{command}' has no number, skipping move.")
+                # --- *** MODIFIED (DEFENSIVE) LOGIC *** ---
+                if sdk_direction in (MoveRobotDirection.LEFTWARD, MoveRobotDirection.RIGHTWARD):
+                    # It's a turn
+                    if value is None:
+                        logger.warning(f"Step {i}: AI gave no value for {direction_str}. Defaulting to 90 degrees.")
+                        value = 90 # The defensive default
+                    
+                    turn_steps = self._convert_degrees_to_steps(int(value))
+                    route_plan.append((sdk_direction, turn_steps))
 
+                elif sdk_direction in (MoveRobotDirection.FORWARD, MoveRobotDirection.BACKWARD):
+                    # It's a move
+                    if value is None:
+                        # This is a real error, we can't guess the steps
+                        logger.error(f"Step {i}: AI gave no value for {direction_str}. Skipping step.")
+                        continue # Skip this step
+                    
+                    route_plan.append((sdk_direction, int(value)))
+                # --- *** END MODIFIED LOGIC *** ---
+                
+            except Exception as e:
+                logger.error(f"Error parsing step {i}: {step}. Error: {e}", exc_info=True)
+                continue  # Skip this bad step
+                
         if not route_plan:
-            logger.error(f"Failed to create any valid route from text: '{text}'")
+            logger.error(f"Failed to create any valid route from AI plan: {ai_plan}")
             return None
-
-        logger.info(f"Successfully parsed route: {route_plan}")
+            
+        logger.info(f"Successfully parsed AI plan into route: {route_plan}")
         return route_plan

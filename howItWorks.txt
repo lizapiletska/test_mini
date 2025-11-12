@@ -1,223 +1,148 @@
-Here is a "head to toe" description of how your robot works, following its logic and all the code modules we've built, from the moment you turn it on.
+Here is the updated "head to toe" description, reflecting all the new modules and advanced logic (live map, position tracking, smart return) that we have built.
+
+---
 
 This is the complete, step-by-step life of your postman robot.
 
-1. 🤖 State: BOOTING (The "Wake Up")
-This is what happens when you run main.py.
-
-Power On: The PostmanApp class is initialized. This immediately creates one instance of every module: the RobotController, AIOrchestrator, StateManager, Planner, Mapper, SecurityManager, MemoryManager, and RouteRecorder.
-
-Connect: The app.run() method calls controller.connect(). The robot connects to your Wi-Fi, enters programming mode, and is ready for commands.
-
-Say Hello: The boot_sequence starts. The robot calls state_manager.safe_say() with the BOOT_GREETING prompt.
-
-Robot says: "Hello. I am starting up."
-
-Check Map: It calls mapper.load_map_from_file().
-
-Scan Room (Only if needed):
-
-If no map exists: It calls safe_say(prompts.BOOT_START_SCAN).
-
-Robot says: "Analyzing room. Please stand clear."
-
-The mapper.scan_and_build_map() function takes over. It rotates 360 degrees in small steps, calling controller.get_infrared_distance() at each step.
-
-It saves the map (a list of angles and distances) to data/maps/main_room_map.json.
-
-If map does exist: It skips the scan entirely.
-
-Ready: It calls safe_say(prompts.BOOT_SYSTEM_READY).
-
-Robot says: "I am now in working mode and ready for commands."
-
-Set State: The application state is set to AppMode.WORKING. The work_loop() and delivery_loop() tasks begin running.
-
-2. 🤖 State: WORKING (The "Listening" Phase)
-The robot is now at its "home" position, listening for commands.
-
-Listen: The work_loop() is active. It sees the mode is WORKING and the robot is not in a conversation. It calls state_manager.safe_listen().
-
-Guards Check: The StateManager checks the context. Is the robot speaking? No. Is it walking? No. Is the AI busy? No. The check passes.
-
-Wait for Speech: The StateManager calls controller.listen_for_speech(). This activates the SDK's ObserveSpeechRecognise event. The robot is now actively listening.
-
-User Speaks: You say: "Robot, I need to send a message to Bob."
-
-ASR: The controller's listener captures the text "Robot, I need to send a message to Bob" and returns it to main.py.
-
-Analyze (AI): main.py immediately calls state_manager.safe_analyze_ai(text).
-
-Ollama Call: The AIOrchestrator takes this text, wraps it with the SYSTEM_PROMPT, and sends it to your local Ollama (Mistral) model.
-
-Get Intent: Ollama returns a JSON string, which orchestrator.process_text parses into a dictionary: {"intent": "SEND_MESSAGE", "recipient_name": "Bob"}
-
-React: The work_loop() receives this dictionary. It sees the intent is SEND_MESSAGE.
-
-3. 🤖 State: COMPOSING (The "Conversation")
-The robot now needs to gather all the details for the message.
-
-Set State: main.py sets the global state to AppMode.COMPOSING.
-
-Start Flow: It calls conversation.start_new_message_flow(ai_data).
-
-Ask for Message: The ConversationFlow sets its internal step to AWAITING_MESSAGE_BODY. It immediately calls safe_say(prompts.PROMPT_FOR_MESSAGE).
-
-Robot says: "Please say your message clearly."
-
-Listen (Loop 2): The work_loop() runs again. It sees the mode is COMPOSING and is_in_conversation() is true. It calls safe_listen().
-
-User Speaks: You say: "Tell him lunch is at 7 in the cafeteria."
-
-AI Analyzes (Loop 2): The text is sent to the AIOrchestrator. It returns: {"intent": "PROVIDE_MESSAGE_BODY", "message_body": "Tell him lunch is at 7 in the cafeteria"}
-
-Handle Response: main.py calls conversation.handle_ai_response(ai_data).
-
-Conversation Logic: The ConversationFlow sees its state is AWAITING_MESSAGE_BODY and the intent is PROVIDE_MESSAGE_BODY. This is a match.
-
-Ask for Sender: It saves the message body, updates its internal step to AWAITING_SENDER_NAME, and calls safe_say(prompts.PROMPT_FOR_SENDER_NAME).
-
-Robot says: "Got it. Please tell me your name."
-
-Listen (Loop 3): You say: "I'm Alice."
-
-AI Analyzes (Loop 3): Returns {"intent": "PROVIDE_SENDER_NAME", "sender_name": "Alice"}.
-
-Ask for Protection: The ConversationFlow logic matches, saves the sender, updates its step to AWAITING_PROTECTION, and asks:
-
-Robot says: "Do you want to protect this message with a password?"
-
-Listen (Loop 4): You say: "Yes, I do."
-
-AI Analyzes (Loop 4): Returns {"intent": "CONFIRM_YES"}.
-
-Ask for Password: The ConversationFlow logic matches, updates its step to AWAITING_PASSWORD, and asks:
-
-Robot says: "Please say the password word."
-
-Listen (Loop 5): You say: "Oranges."
-
-AI Analyzes (Loop 5): Returns {"intent": "PROVIDE_PASSWORD", "password": "oranges"}.
-
-Ask for Address: The ConversationFlow logic matches, saves the password, updates its step to AWAITING_ADDRESS, and asks:
-
-Robot says: "Please give me the address, for example: 50 steps forward, turn 90 left."
-
-Listen (Loop 6): You say: "Go 20 steps forward and then 10 steps to the right."
-
-AI Analyzes (Loop 6): Returns {"intent": "PROVIDE_ADDRESS", "address_text": "Go 20 steps forward and then 10 steps to the right"}.
-
-Job Complete: The ConversationFlow logic matches. It now has all the data.
-
-It sets its internal step to READY_TO_SEND.
-
-It creates the final completed_job dictionary.
-
-It generates a message ID (e.g., 45192).
-
-It calls safe_say(prompts.PROMPT_MESSAGE_ID_CONFIRM.format(45192)).
-
-Robot says: "Your message is saved. The message ID is 45192."
-
-Queue Job: The work_loop() retrieves this completed_job and puts it into the delivery_queue.
-
-Set State: The robot's state is set back to AppMode.WORKING. It is now free to listen for another message, even while the first one is being delivered.
-
-4. 🤖 State: SENDING (The "Delivery")
-The delivery_loop() (which runs in parallel) was waiting for a job. It now has one.
-
-Set State: The delivery_loop() gets the job and sets the global state to AppMode.SENDING.
-
-Get Route: It calls get_route_for_job(job).
-
-It calls memory.get_known_route_for_recipient("Bob"). The memory module checks data/profiles/ for profile_bob.json. It finds nothing.
-
-Since no saved route exists, it calls planner.parse_address_to_route(...) with the address_text.
-
-The Planner uses regex to parse the string and returns a RoutePlan: [(MoveRobotDirection.FORWARD, 20), (MoveRobotDirection.RIGHTWARD, 10)].
-
-Save for Return: main.py calls recorder.save_route_for_return(route_plan). The RouteRecorder saves this plan in its self.last_route variable.
-
-Execute: main.py calls safe_execute_route(route_plan). The state isWalking is set to True.
-
-Move (Step 1):
-
-The loop sees (MoveRobotDirection.FORWARD, 20).
-
-It calls detector.is_path_blocked().
-
-The ObstacleDetector calls controller.get_infrared_distance(). It returns 800mm.
-
-This is greater than the OBSTACLE_THRESHOLD_MM (300mm). The path is clear.
-
-It calls controller.move(MoveRobotDirection.FORWARD, 20). The robot walks 20 steps.
-
-Move (Step 2):
-
-The loop sees (MoveRobotDirection.RIGHTWARD, 10).
-
-The direction is not FORWARD, so it skips the obstacle check.
-
-It calls controller.move(MoveRobotDirection.RIGHTWARD, 10). The robot turns.
-
-Arrive: The route is finished. safe_execute_route returns True. The isWalking state is set to False.
-
-5. 🤖 State: RECEIVING (At the Destination)
-The robot has arrived at Bob's location.
-
-Set State: main.py sets the global state to AppMode.RECEIVING.
-
-Knock Knock: It enters the "knock" loop and calls safe_say(prompts.RECEIVER_KNOCK).
-
-Robot says: "Knock knock. I have a delivery."
-
-Find Person: (We'll use your new wait_for_face_detect logic). It calls controller.wait_for_face_detect(). A person walks up. The controller sees a face and the loop breaks.
-
-Confirm Identity: It calls safe_say(prompts.RECEIVER_CONFIRM_IDENTITY.format("Bob")).
-
-Robot says: "Hello, are you Bob?"
-
-Listen: safe_listen() is called. The person (Bob) says: "Yes, that's me."
-
-AI Analyzes: Returns {"intent": "CONFIRM_YES"}.
-
-Check Password: main.py sees the job has a password ("oranges"). It calls safe_say(prompts.RECEIVER_ASK_FOR_PASSWORD).
-
-Robot says: "This message is protected. Please say the password."
-
-Listen: Bob says: "Oranges."
-
-AI Analyzes: Returns {"intent": "PROVIDE_PASSWORD", "password": "oranges"}.
-
-Verify Password: main.py calls security.verify_password("oranges", "oranges"). It returns True.
-
-Deliver Message: The password was correct (it skips the "passport" check). It calls safe_say(...).
-
-Robot says: "Message from Alice: Tell him lunch is at 7 in the cafeteria."
-
-Save Route: main.py calls memory.save_route_for_recipient("Bob", route_plan). The MemoryManager creates a new file, data/profiles/profile_bob.json, containing the route [["FORWARD", 20], ["RIGHTWARD", 10]].
-
-Confirm Save: It calls safe_say(prompts.SAVING_NEW_ADDRESS.format("Bob")).
-
-Robot says: "I have saved this new location for Bob."
-
-execute_delivery_flow returns True.
-
-6. 🤖 State: RETURNING (Going Home)
-Set State: delivery_loop sees delivery_success is True and sets the state to AppMode.RETURNING.
-
-Get Return Plan: It calls go_home(), which calls recorder.get_return_route().
-
-Reverse Route: The RouteRecorder takes the saved [(FORWARD, 20), (RIGHTWARD, 10)], reverses it, and inverts the directions. It returns a new plan: [(LEFTWARD, 10), (BACKWARD, 20)].
-
-Announce: It calls safe_say(prompts.HEADING_BACK_TO_START).
-
-Robot says: "Delivery complete. Returning to my starting point."
-
-Execute Return: It sets isWalking to True and executes the return plan (without obstacle checks).
-
-Arrive Home: The go_home() function finishes.
-
-Set State: The delivery_loop() sets the global state back to AppMode.WORKING.
-
-The robot is back at its start, and the work_loop() is already listening for the next command
+### 1. 🤖 State: BOOTING (The "Wake Up")
+
+This is what happens when you run `main.py`.
+
+* **Power On:** The `PostmanApp` class is initialized. This creates one instance of *every* module in the correct order:
+    1.  `RobotController` (hardware connection)
+    2.  `RobotState` (tracks `x`, `y`, `heading`)
+    3.  `VisualMapper` (creates the map window, gets `RobotState`)
+    4.  `MovementController` (the "safe move" function, gets `Controller`, `State`, and `VisualMapper`)
+    5.  All other modules: `Detector`, `Planner`, `Mapper`, `Recorder`, `AIOrchestrator`, `SecurityManager`, `MemoryManager`.
+    6.  `DeliveryFlow` (gets all the modules it needs for delivery).
+
+* **Connect:** The `app.run()` method calls `controller.connect()`. The robot connects to your Wi-Fi and enters programming mode.
+
+* **Say Hello:** The `boot_sequence` starts. `state_manager.safe_say(BOOT_GREETING)`.
+    * **Robot says:** "Hello. I am starting up."
+
+* **Start Map:** `visual_mapper.start()` is called. A **live pop-up window** appears on your computer, showing a 10x10 meter grid with the robot at the center (0, 0) and an arrow for its heading.
+    
+
+* **Load Locations:** `main.py` calls `memory.get_all_saved_locations()`. It reads all `profile_*.json` files. For every person with a saved `(x, y)` coordinate, `visual_mapper.load_permanent_locations()` is called.
+    * **On the Map:** Blue 'X' markers with names (e.g., "Bob") appear at their saved coordinates.
+
+* **Check Map:** It calls `mapper.load_map_from_file()`.
+
+* **Load or Scan Room:**
+    * **If map *does* exist:** `mapper.get_map_data()` sends the list of saved points to `visual_mapper.load_obstacles()`.
+        * **On the Map:** The old scan (hollow red circles with distance labels) is drawn onto the map.
+    * **If no map *exists*:** `safe_say(prompts.BOOT_START_SCAN)` is called.
+        * **Robot says:** "Analyzing room. Please stand clear."
+        * `mapper.scan_and_build_map()` begins:
+        * **Loop (12 times):**
+            1.  `controller.get_infrared_distance()` gets a distance (e.g., 1500mm).
+            2.  `robot_state.get_world_coords(1500)` calculates the absolute `(x, y)` of that obstacle based on the robot's current heading.
+            3.  `visual_mapper.add_obstacle(x, y, "1500mm")` is called. A **new red circle** appears on the map.
+            4.  `movement_controller.move(LEFTWARD, 1)` is called to turn the robot.
+        * **Inside `movement_controller.move`:**
+            1.  `controller.move(LEFTWARD, 1)` tells the robot to turn.
+            2.  `robot_state.move()` updates the internal `self.heading_deg` by -30 degrees.
+            3.  `visual_mapper.update_robot_state()` is called. **On the map, the robot's blue arrow rotates** to its new heading.
+        * After the loop, the map is saved to `data/maps/main_room_map.json`.
+
+* **Ready:** `safe_say(prompts.BOOT_SYSTEM_READY)`.
+    * **Robot says:** "I am now in working mode and ready for commands."
+
+* **Set State:** State is set to `AppMode.WORKING`. `work_loop()` and `delivery_loop()` begin.
+
+---
+
+### 2. 🤖 State: WORKING (The "Listening" Phase)
+
+The robot is at (0, 0), listening. The map window remains open.
+
+* **Listen:** `work_loop()` calls `state_manager.safe_listen()`.
+* **User Speaks:** You say: "Robot, I need to send a message to Bob."
+* **ASR & AI:** The text is captured. `AIOrchestrator` returns: `{"intent": "SEND_MESSAGE", "recipient_name": "Bob"}`.
+* **React:** `work_loop()` sees `SEND_MESSAGE`.
+
+---
+
+### 3. 🤖 State: COMPOSING (The "Conversation")
+
+The robot gathers the message details. **The map window is still live but unchanging.**
+
+* **Set State:** `main.py` sets state to `AppMode.COMPOSING`.
+* **Start History:** `memory.start_conversation_log()` is called.
+* **Conversation Flow:** The robot and user have their multi-step conversation (ask for message, sender, recipient, password).
+* **Listen (Loop 6):** You say: "Go 20 steps forward and then 10 steps to the right."
+* **AI Analyzes (Loop 6):** Returns `{"intent": "PROVIDE_ADDRESS", "address_text": "Go 20 steps forward and then 10 steps to the right"}`.
+* **Job Complete:** The `ConversationFlow` saves the job.
+* **Finalize History:** `memory.finalize_conversation_log(45192)` saves the *composing* part of the conversation to `data/messages/log_45192.json`.
+* **Robot says:** "Your message is saved. The message ID is 45192."
+* **Queue Job:** The job is put in the `delivery_queue`.
+* **Set State:** State is set back to `AppMode.WORKING`.
+
+---
+
+### 4. 🤖 State: SENDING (The "Delivery")
+
+The `delivery_loop()` has a job. **The map window will now update with the robot's movement.**
+
+* **Set State:** `delivery_loop()` sets state to `AppMode.SENDING`.
+* **Get Route:** `delivery_loop()` calls `self.delivery_flow.get_route_for_job(job)`.
+    * `memory.get_known_route_for_recipient("Bob")` checks the profile. It finds nothing (or you said "no" to using the saved route).
+    * `planner.parse_address_to_route()` parses the `address_text`.
+    * It returns the `RoutePlan`: `[(MoveRobotDirection.FORWARD, 20), (MoveRobotDirection.RIGHTWARD, 10)]`.
+* **Execute:** `delivery_flow.execute_delivery_flow` is called.
+    * `recorder.save_route_for_return()` saves the plan.
+    * `_safe_execute_route` begins. `isWalking` is set to `True`.
+* **Move (Step 1):**
+    * `movement_controller.move(MoveRobotDirection.FORWARD, 20)` is called.
+    * `controller.move(FORWARD, 20)` tells the robot to move.
+    * `robot_state._convert_steps_to_meters(20)` returns `0.48` meters.
+    * `robot_state.move()` updates its internal state. `self.x_m` = 0, `self.y_m` = 0.48.
+    * `visual_mapper.update_robot_state()` is called. **On the map, the robot dot moves** to its new `(0, 0.48)` coordinate.
+* **Move (Step 2):**
+    * `movement_controller.move(MoveRobotDirection.RIGHTWARD, 10)` is called.
+    * `controller.move(RIGHTWARD, 10)` tells the robot to turn.
+    * `robot_state.move()` updates its state. `10 steps * 30 deg/step = 300` degrees. The new heading is `(0 + 300) % 360 = 300` degrees.
+    * `visual_mapper.update_robot_state()` is called. **On the map, the robot's arrow rotates** to 300 degrees.
+* **Arrive:** The route is finished. `isWalking` is set to `False`.
+
+---
+
+### 5. 🤖 State: RECEIVING (At the Destination)
+
+The robot is at Bob's location, `(0, 0.48)` and facing 300 degrees.
+
+* **Set State:** `delivery_flow` sets state to `AppMode.RECEIVING`.
+* **Load History:** `memory.load_conversation_log(45192)` loads the composing log.
+* **Interact:** The robot "knocks," confirms identity ("Are you Bob?"), announces the sender ("Message from Alice:"), and verifies the password ("Oranges").
+* **Deliver Message:**
+    * **Robot says:** "Message from Alice: Tell him lunch is at 7 in the cafeteria."
+* **Save Route & Location:** This is the new, combined step.
+    1.  `robot_state.get_state()` is called, returning `(0.48, 0, 300)`.
+    2.  `memory.save_route_for_recipient("Bob", route_plan, 0.48, 0, 300)` is called. The `profile_bob.json` file is created, now containing the route *and* the final coordinates `{"location": {"x": 0.48, "y": 0.0, "heading": 300.0}}`.
+    3.  `visual_mapper.add_permanent_location(0.48, 0, "Bob")` is called.
+    4.  **On the map, a new blue 'X' labeled "Bob" appears** at the robot's current location.
+* **Confirm Save:**
+    * **Robot says:** "I have saved this new location for Bob."
+* **Finalize History:** `memory.finalize_conversation_log(45192)` saves the *complete* log (composing + delivery) to the file.
+* `execute_delivery_flow` returns `True`.
+
+---
+
+### 6. 🤖 State: RETURNING (Going Home)
+
+The robot must now return to `(0, 0)`.
+
+* **Set State:** `delivery_loop` sets state to `AppMode.RETURNING`.
+* **Get Return Plan:** `delivery_loop` calls `delivery_flow.go_home()`, which calls `recorder.get_return_route()`.
+* **Reverse Route (Smart):** The `RouteRecorder` takes the original plan `[(FORWARD, 20), (RIGHTWARD, 10)]` and reverses it:
+    1.  Reverse `(RIGHTWARD, 10)` -> `(LEFTWARD, 10)`
+    2.  Reverse `(FORWARD, 20)` -> `(LEFTWARD, 6)` (180° turn), `(FORWARD, 20)` (move), `(LEFTWARD, 6)` (180° turn).
+    * **Final Plan:** `[(LEFTWARD, 10), (LEFTWARD, 6), (FORWARD, 20), (LEFTWARD, 6)]`
+* **Announce:**
+    * **Robot says:** "Delivery complete. Returning to my starting point."
+* **Execute Return:** `delivery_flow.go_home()` executes the return plan, calling `movement_controller.move` for each of the 4 steps.
+    * **On the map, the robot's dot and arrow are updated live** as it turns, turns again, moves 48cm, and turns a final time, arriving back at `(0, 0)`.
+* **Arrive Home:** `go_home()` finishes.
+* **Set State:** `delivery_loop()` sets state back to `AppMode.WORKING`.
+* **Robot says:** "Does anyone else have a message to send?"

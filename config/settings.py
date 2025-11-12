@@ -2,7 +2,7 @@ import logging
 from mini.mini_sdk import RobotType  # Import RobotType from the SDK
 
 # === Robot Connection Settings ===
-ROBOT_IP: str = "192.168.137.7"  # The IP address you provided
+ROBOT_IP: str = "192.168.137.43"  # The IP address you provided
 ROBOT_PORT: int = 8800
 ROBOT_TYPE: RobotType = RobotType.EDU  # Use the enum from the SDK
 LOG_LEVEL: int = logging.INFO

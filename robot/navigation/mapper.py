@@ -31,12 +31,12 @@ class Mapper:
                  controller: 'RobotController', 
                  visual_mapper: 'VisualMapper',
                  robot_state: 'RobotState',
-                 movement_controller: 'MovementController'): # <-- MODIFIED
+                 movement_controller: 'MovementController'):
         
         self.controller = controller
         self.visual_mapper = visual_mapper
         self.robot_state = robot_state
-        self.movement_controller = movement_controller # <-- NEW
+        self.movement_controller = movement_controller
         
         self.map_data: List[Dict] = []
         
@@ -51,41 +51,34 @@ class Mapper:
     async def scan_and_build_map(self) -> bool:
         """
         Performs the 360-degree spin-and-scan operation.
+        (This is the corrected version from last time)
         """
         logger.info(f"Starting room scan: {self.scan_points_to_run} points, {self.steps_per_scan} steps per point.")
         self.map_data = []
 
         try:
             for i in range(self.scan_points_to_run):
-                current_angle = round(i * self.angle_per_scan, 1)
                 
-                # 1. Get distance reading
                 distance_mm = await self.controller.get_infrared_distance()
                 
                 if distance_mm is not None:
-                    logger.debug(f"Scan {i}: angle={current_angle}°, distance={distance_mm}mm")
-                    self.map_data.append({"angle": current_angle, "distance_mm": distance_mm})
+                    current_heading = self.robot_state.heading_deg
+                    logger.debug(f"Scan {i}: angle={current_heading}°, distance={distance_mm}mm")
+                    self.map_data.append({"angle": current_heading, "distance_mm": distance_mm})
                     
-                    # --- *** NEW *** ---
-                    # Convert to world (x, y) and add to visual map
                     label = f"{distance_mm}mm"
-                    wx, wy = self.robot_state.get_world_coords(current_angle, distance_mm)
+                    wx, wy = self.robot_state.get_world_coords(distance_mm)
                     self.visual_mapper.add_obstacle(wx, wy, label)
                     
                 else:
-                    logger.warning(f"Scan {i} at angle {current_angle}°: Failed to get IR reading.")
+                    logger.warning(f"Scan {i} at angle {self.robot_state.heading_deg}°: Failed to get IR reading.")
                 
-                # 2. Rotate to the next scan point
-                # --- *** MODIFIED *** ---
-                # Use the new MovementController. This will also update the map.
                 await self.movement_controller.move(
                     MoveRobotDirection.LEFTWARD, 
                     self.steps_per_scan
                 )
-
                 await asyncio.sleep(0.2) 
 
-            # 3. Save the completed map to a file
             self._save_map_to_file()
             logger.info(f"Room scan complete. Map saved to {settings.MAP_FILE_PATH}")
             return True
@@ -93,12 +86,12 @@ class Mapper:
         except Exception as e:
             logger.error(f"An error occurred during room scan: {e}", exc_info=True)
             return False
-        
-        # 'finally' block to stop visualizer is removed
-        # The visualizer now runs for the whole program
 
     def _save_map_to_file(self):
-        # (This function is unchanged)
+        """
+        Saves the collected map_data to a JSON file.
+        (Unchanged)
+        """
         try:
             with open(settings.MAP_FILE_PATH, 'w') as f:
                 json.dump(self.map_data, f, indent=4)
@@ -106,7 +99,10 @@ class Mapper:
             logger.error(f"Failed to save map file to {settings.MAP_FILE_PATH}: {e}")
 
     def load_map_from_file(self) -> bool:
-        # (This function is unchanged)
+        """
+        Loads a previously saved map from the JSON file.
+        (Unchanged)
+        """
         try:
             with open(settings.MAP_FILE_PATH, 'r') as f:
                 self.map_data = json.load(f)
@@ -120,3 +116,8 @@ class Mapper:
             logger.error(f"Failed to load or parse map file: {e}")
             self.map_data = []
             return False
+
+    # --- *** NEW PUBLIC FUNCTION *** ---
+    def get_map_data(self) -> List[Dict]:
+        """Returns the currently loaded map data."""
+        return self.map_data
