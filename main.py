@@ -28,6 +28,8 @@ from ai.memory import MemoryManager
 # --- *** NEW *** ---
 from vision.visual_mapper import VisualMapper
 from core.delivery_flow import DeliveryFlow
+from core.robot_state import RobotState
+from core.movement_controller import MovementController
 
 # --- Setup Logging ---
 logging.basicConfig(
@@ -43,37 +45,48 @@ class PostmanApp:
     The main application class that orchestrates all robot subsystems.
     """
     def __init__(self):
-        # Initialize all modules
+        # --- Initialize all modules (in order) ---
+        
+        # 1. Low-level Hardware & State
         self.controller = RobotController()
+        self.robot_state = RobotState()
+        
+        # 2. Visualizer (requires state)
+        self.visual_mapper = VisualMapper(self.robot_state)
+        
+        # 3. Guarded Movement (requires controller, state, and visualizer)
+        self.movement_controller = MovementController(
+            self.controller, self.robot_state, self.visual_mapper
+        )
+        
+        # 4. Navigation & Mapping (requires hardware and movement)
         self.detector = ObstacleDetector(self.controller)
         self.planner = Planner()
-        
-        # --- *** NEW *** ---
-        # Initialize the visualizer
-        self.visual_mapper = VisualMapper()
-        
-        # Pass the visualizer to the Mapper
-        self.mapper = Mapper(self.controller, self.visual_mapper)
-        
+        self.mapper = Mapper(
+            self.controller, self.visual_mapper, self.robot_state, self.movement_controller
+        )
+        self.recorder = RouteRecorder()
+
+        # 5. AI & Memory Modules
         self.ai = AIOrchestrator()
         self.security = SecurityManager(self.controller)
         self.memory = MemoryManager()
-        self.recorder = RouteRecorder()
         
+        # 6. Core Logic & Flows (requires all other modules)
         self.state_manager = StateManager(self.controller, self.ai, self.memory)
         self.conversation = ConversationFlow(self.state_manager)
         
-        # --- *** NEW *** ---
-        # Initialize the new DeliveryFlow class
         self.delivery_flow = DeliveryFlow(
             self.state_manager,
             self.memory,
             self.planner,
             self.security,
             self.recorder,
-            self.detector
+            self.detector,
+            self.movement_controller
         )
         
+        # 7. Job Queue
         self.delivery_queue = asyncio.Queue()
 
     async def boot_sequence(self):
@@ -85,10 +98,14 @@ class PostmanApp:
         
         await self.state_manager.safe_say(prompts.BOOT_GREETING)
         
+        # --- *** NEW *** ---
+        # Start the visualizer window. It will now stay open.
+        self.visual_mapper.start()
+        
         if not self.mapper.load_map_from_file():
             logger.info("No map file found. Starting new room scan.")
             await self.state_manager.safe_say(prompts.BOOT_START_SCAN)
-            # This will now launch the pop-up window
+            # This will now update the live window
             await self.mapper.scan_and_build_map() 
         else:
             logger.info("Successfully loaded existing map file.")
@@ -102,7 +119,6 @@ class PostmanApp:
     async def work_loop(self):
         """
         The main "Working" loop.
-        Listens for commands and handles conversation state.
         (Unchanged from your last version)
         """
         while True:
@@ -175,7 +191,7 @@ class PostmanApp:
     async def delivery_loop(self):
         """
         The main "Postman" loop.
-        Now delegates all logic to the DeliveryFlow.
+        (Delegates all logic to the DeliveryFlow)
         """
         while True:
             try:
@@ -186,8 +202,6 @@ class PostmanApp:
                 set_state(mode=AppMode.SENDING)
                 await self.state_manager.safe_say(prompts.PROMPT_SENDING_MESSAGES)
                 
-                # --- *** MODIFIED *** ---
-                # Call the new delivery_flow class
                 route_plan = await self.delivery_flow.get_route_for_job(job)
                 
                 if not route_plan:
@@ -196,19 +210,15 @@ class PostmanApp:
                     self.delivery_queue.task_done()
                     continue
 
-                # --- *** MODIFIED *** ---
-                # Call the new delivery_flow class
                 delivery_success = await self.delivery_flow.execute_delivery_flow(job, route_plan)
                 
                 if delivery_success:
                     logger.info("Delivery successful. Returning to start.")
                     set_state(mode=AppMode.RETURNING)
-                    # --- *** MODIFIED *** ---
                     await self.delivery_flow.go_home()
                 else:
                     logger.warning("Delivery failed. Returning to start.")
                     set_state(mode=AppMode.RETURNING)
-                    # --- *** MODIFIED *** ---
                     await self.delivery_flow.go_home()
                 
                 logger.info(f"--- 📬 DELIVERY COMPLETE for job {job['id']} ---")
@@ -220,12 +230,6 @@ class PostmanApp:
             except Exception as e:
                 logger.error(f"Error in delivery_loop: {e}", exc_info=True)
                 await self.state_manager.safe_say(prompts.ERROR_GENERIC)
-
-    # --- ALL DELIVERY HELPER FUNCTIONS HAVE BEEN MOVED ---
-    # get_route_for_job -> self.delivery_flow.get_route_for_job
-    # execute_delivery_flow -> self.delivery_flow.execute_delivery_flow
-    # safe_execute_route -> self.delivery_flow._safe_execute_route
-    # go_home -> self.delivery_flow.go_home
 
     async def run(self):
         """
@@ -246,6 +250,11 @@ class PostmanApp:
         except asyncio.CancelledError:
             logger.info("Application shutting down...")
         finally:
+            # --- *** NEW *** ---
+            # Stop the visualizer thread on shutdown
+            if self.visual_mapper:
+                self.visual_mapper.stop()
+            
             if self.controller.device:
                 await self.controller.disconnect()
             logger.info("Shutdown complete.")
